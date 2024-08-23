@@ -27,7 +27,8 @@ uint32_t users_amount;
 
 enum UPDATE_TYPE {
     SETX,
-    SETY
+    SETY,
+    SENDM
 };
 
 
@@ -65,6 +66,7 @@ int32_t main() {
                 "\tprint            - print the shared object.\n"
                 "\tsetx ____        - set the x value of your client to ____ at the shared object.\n"
                 "\tsety ____        - set the y value of your client to ____ at the shared object.\n"
+                "\tsend ____        - send a message\n"
             );
             continue;
         }
@@ -90,7 +92,9 @@ int32_t main() {
                 continue;
             }
 
-            printf("opened a server\n");
+            char ip_string[16];
+            ipstring_from_ipuint(ip_string, get_server_ip());
+            printf("opened a server, running at: %s\n", ip_string);
             is_server = 1;
             client_id = -1;
 
@@ -218,6 +222,37 @@ int32_t main() {
             }
             continue;
         }
+
+        if (memcmp(input_buffer, "send ", 5) == 0) {
+            if (is_client == 0 && is_server == 0) {
+                printf("cannot send a message while not connected to a server or hosting one.\n");
+                continue;
+            }
+
+            int8_t new_x = atoi(&(input_buffer[4]));
+            
+            if (is_server) {
+                users[_CLIENTS_MAX_AMOUNT_].x = new_x;
+            }else {
+                users[client_id].x = new_x;
+            }
+
+            // create CLIENT_UPDATE packet
+            client_packet_t packet = (client_packet_t) {
+                .packet_len = 2,
+                .packet_type = CLIENT_UPDATE,
+                .packet_body[0] = SENDM
+            };
+            strcpy(&(packet.packet_body[1]), &(input_buffer[5]));
+            packet.packet_len += strlen(&(input_buffer[5]));
+
+            if (is_server) {
+                send_update_packet_as_server(packet);
+            }else {
+                send_update_packet(packet);
+            }
+            continue;
+        }
     }
 }
 
@@ -272,6 +307,14 @@ void parse_update_packet(server_packet_t packet) {
         }
         case SETY: {
             users[user_id].y = packet.packet_body[1];
+            break;
+        }
+        case SENDM: {
+            printf(
+                "user %d sent: \"%s\"\n",
+                user_id,
+                &(packet.packet_body[1])
+            );
             break;
         }
     }
