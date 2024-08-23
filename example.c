@@ -178,9 +178,10 @@ int32_t main() {
             }
 
             // create CLIENT_UPDATE packet
-            client_packet_t packet = (client_packet_t) {
-                .packet_len = 3,
+            nf_packet_t packet = (nf_packet_t) {
+                .packet_len = 4,
                 .packet_type = CLIENT_UPDATE,
+                .client_id = client_id,
                 .packet_body[0] = SETX,
                 .packet_body[1] = new_x
             };
@@ -208,9 +209,10 @@ int32_t main() {
             }
 
             // create CLIENT_UPDATE packet
-            client_packet_t packet = (client_packet_t) {
-                .packet_len = 3,
+            nf_packet_t packet = (nf_packet_t) {
+                .packet_len = 4,
                 .packet_type = CLIENT_UPDATE,
+                .client_id = client_id,
                 .packet_body[0] = SETY,
                 .packet_body[1] = new_y
             };
@@ -238,13 +240,15 @@ int32_t main() {
             }
 
             // create CLIENT_UPDATE packet
-            client_packet_t packet = (client_packet_t) {
-                .packet_len = 2,
+            nf_packet_t packet = (nf_packet_t) {
+                .packet_len = 3,
                 .packet_type = CLIENT_UPDATE,
+                .client_id = client_id,
                 .packet_body[0] = SENDM
             };
             strcpy(&(packet.packet_body[1]), &(input_buffer[5]));
             packet.packet_len += strlen(&(input_buffer[5]));
+            packet.packet_len += 1; // add null terminator
 
             if (is_server) {
                 send_update_packet_as_server(packet);
@@ -268,8 +272,8 @@ void print_users_data() {
 
 
 
-server_packet_t generate_state_packet() {
-    server_packet_t packet = (server_packet_t){
+nf_packet_t generate_state_packet() {
+    nf_packet_t packet = (nf_packet_t){
         .packet_len = 2,
         .packet_type = SERVER_STATE,
         .client_id = -1
@@ -284,7 +288,7 @@ server_packet_t generate_state_packet() {
     return packet;
 }
 
-void parse_state_packet(server_packet_t packet) {
+void parse_state_packet(nf_packet_t packet) {
     for (uint32_t i = 0; i < _CLIENTS_MAX_AMOUNT_+1; i++) {
         users[i].connected = packet.packet_body[i*3    ];
         users[i].x         = packet.packet_body[i*3 + 1];
@@ -294,7 +298,7 @@ void parse_state_packet(server_packet_t packet) {
     print_users_data();
 }
 
-void parse_update_packet(server_packet_t packet) {
+void parse_update_packet(nf_packet_t packet) {
     if (packet.client_id == client_id) return;
 
     int32_t user_id = packet.client_id;

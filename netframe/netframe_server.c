@@ -1,10 +1,5 @@
 #include "netframe.h"
-
-
-// #define DEBUG_MODE
-
-
-
+#include "netframe_internal.h"
 
 typedef struct {
     uint8_t active                   : 1;
@@ -14,7 +9,7 @@ typedef struct {
     socket_t* client_insock;
 
     // packets that will go out to the client
-    packet_t packets_stack[_PACKETS_STACK_LENGTH_];
+    nf_packet_t packets_stack[_PACKETS_STACK_LENGTH_];
     int32_t packets_stack_size;
 } client_t;
 
@@ -26,7 +21,7 @@ static socket_t* server_outsock;
 static socket_t* server_insock;
 
 
-static void broadcast_packet_to_client_stacks(server_packet_t* packet, int8_t skip_client);
+static void broadcast_packet_to_client_stacks(nf_packet_t* packet, int8_t skip_client);
 static void broadcast_client_disconnect(int8_t client_id);
 static void disconnect_client(int8_t client_id);
 static void out_handler(socket_t* client_insock);
@@ -93,34 +88,33 @@ void close_server() {
     clean_sockets();
 }
 
-void send_update_packet_as_server(client_packet_t packet) {
+void send_update_packet_as_server(nf_packet_t packet) {
     if (packet.packet_type != CLIENT_UPDATE) return;
 
     // broadcast SERVER_CLIENT_UPDATE packet
-    server_packet_t server_packet = (server_packet_t){
-        .packet_len = min(1 + packet.packet_len, _PACKET_MAX_LENGTH_),
-        .packet_type = SERVER_CLIENT_UPDATE,
-        .client_id = -1
-    };
-    memcpy(server_packet.packet_body, packet.packet_body, min(packet.packet_len-1, _PACKET_MAX_LENGTH_-2));
+    nf_packet_t server_packet;
+    memcpy(server_packet.packet, packet.packet, _PACKET_MAX_LENGTH_);
+    server_packet.packet_len = packet.packet_len;
+    server_packet.packet_type = SERVER_CLIENT_UPDATE;
+
     broadcast_packet_to_client_stacks(&server_packet, -1);
     if (parse_update_packet != NULL) parse_update_packet(server_packet);
 }
 
 
-static void broadcast_packet_to_client_stacks(server_packet_t* packet, int8_t skip_client) {
+static void broadcast_packet_to_client_stacks(nf_packet_t* packet, int8_t skip_client) {
     for (int8_t i = 0; i < _CLIENTS_MAX_AMOUNT_; i++) {
         if (i == skip_client) continue;
         if (clients[i].active == 0) continue;
 
-        clients[i].packets_stack[clients[i].packets_stack_size] = *((packet_t*)packet); 
+        clients[i].packets_stack[clients[i].packets_stack_size] = *packet; 
         clients[i].packets_stack_size += 1;
     }
 }
 
 static void broadcast_client_disconnect(int8_t client_id) {
     // broadcast SERVER_CLIENT_DISCONNECTED packet
-    server_packet_t server_packet = (server_packet_t){
+    nf_packet_t server_packet = (nf_packet_t){
         .packet_len = 2,
         .packet_type = SERVER_CLIENT_DISCONNECTED,
         .client_id = client_id
@@ -167,7 +161,7 @@ static void out_handler(socket_t* client_insock) {
     int32_t send_result;
     int8_t client_id;
 
-    #ifdef DEBUG_MODE
+    #ifdef NETFRAME_DEBUG
     printf("client XX out_handler %u: accepted client-in-socket connection.\n", client_insock->sock);
     #endif
 
@@ -190,18 +184,19 @@ static void out_handler(socket_t* client_insock) {
     if (client_id == -1) {
         // no avaiable client IDs, send SERVER_NO_CLIENT_IDS packet
 
-        #ifdef DEBUG_MODE
+        #ifdef NETFRAME_DEBUG
         printf("client XX out_handler %u: sending SERVER_NO_CLIENT_IDS to client-in-socket.\n", client_insock->sock);
         #endif
 
-        server_packet_t packet = (server_packet_t) {
+        nf_packet_t packet = (nf_packet_t) {
             .packet_len = 2,
             .packet_type = SERVER_NO_CLIENT_IDS,
             .client_id = -1
         };
-        send_to_socket(client_insock, ((packet_t*)&packet)->packet, packet.packet_len);
+        // send_to_socket(client_insock, packet.packet, packet.packet_len);
+        send_packet_to_socket(client_insock, packet);
 
-        #ifdef DEBUG_MODE
+        #ifdef NETFRAME_DEBUG
         printf("out_handler %u: terminating.\n", client_insock->sock);
         #endif
         destroy_socket(client_insock); // wont destroy this thread
@@ -211,16 +206,16 @@ static void out_handler(socket_t* client_insock) {
 
     // assigned a client ID, append SERVER_ASSIGNED_CLIENT_ID packet to client's packets stack
     if(1){      // create a scope to remove `packet` from stack after use
-    #ifdef DEBUG_MODE
+    #ifdef NETFRAME_DEBUG
     printf("client %02d out_handler %u: sending SERVER_ASSIGNED_CLIENT_ID with client id %d to client-in-socket.\n", client_id, client_insock->sock, client_id);
     #endif
 
-    server_packet_t packet = (server_packet_t) {
+    nf_packet_t packet = (nf_packet_t) {
         .packet_len = 2,
         .packet_type = SERVER_ASSIGNED_CLIENT_ID,
         .client_id = client_id
     };
-    clients[client_id].packets_stack[clients[client_id].packets_stack_size] = *((packet_t*)&packet);
+    clients[client_id].packets_stack[clients[client_id].packets_stack_size] = packet;
     clients[client_id].packets_stack_size += 1;
     }           // end of the scope, remove `packet` from stack after use
 
@@ -229,21 +224,18 @@ static void out_handler(socket_t* client_insock) {
     while(1) {
         if (clients[client_id].packets_stack_size <= 0) continue;
 
-        #ifdef DEBUG_MODE
+        #ifdef NETFRAME_DEBUG
         printf("client %02d out_handler %u: sending packet to client-in-socket\n", client_id, client_insock->sock);
         #endif
 
         // send packet from top of the stack and pop it
         clients[client_id].packets_stack_size -= 1;
-        send_result = send_to_socket(
-            client_insock,
-            clients[client_id].packets_stack[clients[client_id].packets_stack_size].packet,
-            clients[client_id].packets_stack[clients[client_id].packets_stack_size].packet_len
-        );
+        
+        send_result = send_packet_to_socket(client_insock, clients[client_id].packets_stack[clients[client_id].packets_stack_size]);
 
         // error
         if (send_result == SOCKET_ERROR) {
-            #ifdef DEBUG_MODE
+            #ifdef NETFRAME_DEBUG
             printf("client %02d out_handler %u: ERROR: buffer to client-in-socket did not arrive.\n", client_id, client_insock->sock);
             printf("client %02d out_handler %u: disconnecting.\n", client_id, client_insock->sock);
             #endif
@@ -253,50 +245,46 @@ static void out_handler(socket_t* client_insock) {
 }
 
 static void in_handler(socket_t* client_outsock) {
-    client_packet_t client_packet;
-    server_packet_t server_packet;
-    int32_t recv_return;
+    nf_packet_t client_packet;
+    nf_packet_t server_packet;
     int8_t client_id = -1;
     uint8_t connected = 0;
 
-    #ifdef DEBUG_MODE
+    #ifdef NETFRAME_DEBUG
     printf("client XX in_handler %u: accepted client-out-socket connection.\n", client_outsock->sock);
     #endif
 
     while(1) {
-        recv_return = receive_from_socket(client_outsock, ((packet_t*)&client_packet)->packet, _PACKET_MAX_LENGTH_);
-
-        // receive error
-        if (recv_return == 0 || recv_return == SOCKET_ERROR) {
-            #ifdef DEBUG_MODE
-            if (recv_return == 0)            printf("client %02d in_handler %u: ERROR: connection with client-out-socket ended.\n", client_id, client_outsock->sock);
-            if (recv_return == SOCKET_ERROR) printf("client %02d in_handler %u: ERROR: buffer from client-out-socket did not arrive.\n", client_id, client_outsock->sock);
-            
-            printf("client %02d in_handler %u: disconnecting.\n", client_id, client_outsock->sock);
-            #endif
-            if (connected == 0) {
-                destroy_socket(client_outsock); // wont destroy this thread
-                exit_thread(0);
-            }
-            disconnect_client(client_id); // destroys this thread too
-        }
-
-        // recv_return is the length of the packet
-        client_packet.packet_len = recv_return;
+        client_packet = receive_packet_from_socket(client_outsock);
 
         switch (client_packet.packet_type) {
+            case RECV_ERROR: {
+                #ifdef NETFRAME_DEBUG
+                if (client_packet.packet_body[0] == 0)            printf("client %02d in_handler %u: ERROR: connection with client-out-socket ended.\n", client_id, client_outsock->sock);
+                if (client_packet.packet_body[0] == SOCKET_ERROR) printf("client %02d in_handler %u: ERROR: buffer from client-out-socket did not arrive.\n", client_id, client_outsock->sock);
+                
+                printf("client %02d in_handler %u: disconnecting.\n", client_id, client_outsock->sock);
+                #endif
+                if (connected == 0) {
+                    destroy_socket(client_outsock); // wont destroy this thread
+                    exit_thread(0);
+                }
+                disconnect_client(client_id); // destroys this thread too
+                break;
+            }
+
             case CLIENT_OUT_SOCKET_CONNECT: {
                 if (connected == 1) break; // what the fuck
 
-                client_id = (int8_t)(client_packet.packet_body[0]);
+                client_id = (int8_t)(client_packet.client_id);
 
-                #ifdef DEBUG_MODE
+                #ifdef NETFRAME_DEBUG
                 printf("client %02d in_handler %u: received CLIENT_OUT_SOCKET_CONNECT packet.\n", client_id, client_outsock->sock);                
                 #endif
 
                 // client id errors
                 if (client_id < 0 || client_id >= _CLIENTS_MAX_AMOUNT_) {
-                    #ifdef DEBUG_MODE
+                    #ifdef NETFRAME_DEBUG
                     printf("client %02d in_handler %u: ERROR: non existing client ID.\n", client_id, client_outsock->sock);
                     printf("client %02d in_handler %u: disconnecting.\n", client_id, client_outsock->sock);
                     #endif
@@ -304,7 +292,7 @@ static void in_handler(socket_t* client_outsock) {
                     exit_thread(0);
                 }
                 if (clients[client_id].client_outsock_connected == 1 || clients[client_id].active == 0) {
-                    #ifdef DEBUG_MODE
+                    #ifdef NETFRAME_DEBUG
                     printf("client %02d in_handler %u: ERROR: client ID isnt waiting for connection.\n", client_id, client_outsock->sock);
                     printf("client %02d in_handler %u: disconnecting.\n", client_id, client_outsock->sock);
                     #endif
@@ -312,7 +300,7 @@ static void in_handler(socket_t* client_outsock) {
                     exit_thread(0);
                 }
 
-                #ifdef DEBUG_MODE
+                #ifdef NETFRAME_DEBUG
                 printf("client %02d in_handler %u: connected successfully.\n", client_id, client_outsock->sock);
                 #endif
                 clients[client_id].client_outsock_connected = 1;
@@ -320,7 +308,7 @@ static void in_handler(socket_t* client_outsock) {
                 connected = 1;
 
                 // broadcast SERVER_CLIENT_CONNECTED packet
-                server_packet = (server_packet_t){
+                server_packet = (nf_packet_t){
                     .packet_len = 2,
                     .packet_type = SERVER_CLIENT_CONNECTED,
                     .client_id = client_id
@@ -332,7 +320,7 @@ static void in_handler(socket_t* client_outsock) {
                 if (generate_state_packet != NULL) {
                     server_packet = generate_state_packet();
                     if (server_packet.packet_type == SERVER_STATE) {
-                        clients[client_id].packets_stack[clients[client_id].packets_stack_size] = *((packet_t*)&server_packet);
+                        clients[client_id].packets_stack[clients[client_id].packets_stack_size] = server_packet;
                         clients[client_id].packets_stack_size += 1;
                     }
                 }
@@ -340,12 +328,12 @@ static void in_handler(socket_t* client_outsock) {
             }
             
             case CLIENT_UPDATE: {
-                #ifdef DEBUG_MODE
+                #ifdef NETFRAME_DEBUG
                 printf("client %02d in_handler %u: received CLIENT_UPDATE packet.\n", client_id, client_outsock->sock);
                 #endif
 
                 // broadcast SERVER_CLIENT_UPDATE packet
-                server_packet = (server_packet_t){
+                server_packet = (nf_packet_t){
                     .packet_len = min(1 + client_packet.packet_len, _PACKET_MAX_LENGTH_),
                     .packet_type = SERVER_CLIENT_UPDATE,
                     .client_id = client_id
@@ -358,7 +346,7 @@ static void in_handler(socket_t* client_outsock) {
 
             // error
             default: {
-                #ifdef DEBUG_MODE
+                #ifdef NETFRAME_DEBUG
                 printf("client %02d in_handler %u: ERROR: received packet with bad type.\n", client_id, client_outsock->sock);
                 
                 printf("client %02d in_handler %u: disconnecting.\n", client_id, client_outsock->sock);
