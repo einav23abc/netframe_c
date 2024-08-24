@@ -1,5 +1,4 @@
 #include "netframe.h"
-#include "netframe_internal.h"
 
 // packets that will go out to the server
 static nf_packet_t packets_stack[_PACKETS_STACK_LENGTH_];
@@ -137,7 +136,11 @@ static void out_handler() {
         // send packet from top of the stack and pop it
         packets_stack_size -= 1;
         
-        send_result = send_packet_to_socket(server_insock, packets_stack[packets_stack_size]);
+        send_result = send_to_socket(
+            server_insock,
+            packets_stack[packets_stack_size].packet,
+            packets_stack[packets_stack_size].packet_len
+        );
 
         // error
         if (send_result == SOCKET_ERROR) {
@@ -160,26 +163,31 @@ static void out_handler() {
 
 static void in_handler() {
     nf_packet_t server_packet;
+    int32_t recv_return;
 
     #ifdef NETFRAME_DEBUG
     printf("in_handler %u: server-out-socket %u accepted connection.\n", server_outsock->sock, server_outsock->sock);
     #endif
 
     while(1) {
-        server_packet = receive_packet_from_socket(server_outsock);
+        recv_return = receive_from_socket(server_outsock, server_packet.packet, _PACKET_MAX_LENGTH_);
+
+        // error
+        if (recv_return == 0 || recv_return == SOCKET_ERROR) {
+            #ifdef DEBUG_MODE
+            if (recv_return == 0)            printf("in_handler %u: ERROR: connection with server-out-socket ended.\n", server_outsock->sock);
+            if (recv_return == SOCKET_ERROR) printf("in_handler %u: ERROR: buffer from server-out-socket did not arrive.\n", server_outsock->sock);
+
+            printf("in_handler %u: disconnecting.\n", server_outsock->sock);
+            #endif
+            exit_server();
+        }
+
+        // recv_return is the length of the packet
+        server_packet.packet_len = recv_return;
+
 
         switch (server_packet.packet_type) {
-            case RECV_ERROR: {
-                #ifdef NETFRAME_DEBUG
-                if (server_packet.packet_body[0] == 0)            printf("in_handler %u: ERROR: connection with server-out-socket ended.\n", server_outsock->sock);
-                if (server_packet.packet_body[0] == SOCKET_ERROR) printf("in_handler %u: ERROR: buffer from server-out-socket did not arrive.\n", server_outsock->sock);
-                
-                printf("in_handler %u: disconnecting.\n", server_outsock->sock);
-                #endif
-                exit_server();
-                break;
-            }
-            
             case SERVER_ASSIGNED_CLIENT_ID: {
                 client_id = server_packet.client_id;
 

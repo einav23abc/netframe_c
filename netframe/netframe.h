@@ -17,7 +17,7 @@
 #endif
 
 #ifndef _PACKET_MAX_LENGTH_
-#define _PACKET_MAX_LENGTH_ (2048)
+#define _PACKET_MAX_LENGTH_ (128)
 #endif
 #ifndef _PACKETS_STACK_LENGTH_
 #define _PACKETS_STACK_LENGTH_ (8)
@@ -29,20 +29,6 @@
 
 
 enum PACKET_TYPE {
-    /* States that an error ocoured when receiving a packet.
-     *
-     * An error code `0` means: Connection with socket ended.
-     * 
-     * An error code `1` means: Received a packet bigger then `_PACKET_MAX_LENGTH_`.
-     * 
-     * An error code `SOCKET_ERROR` means: Buffer from socket did not arrive.
-     * 
-     * \param packet_type `RECV_ERROR`.
-     * \param client_id Always `-1`.
-     * \param packet_body[0] The recv error code.
-     */
-    RECV_ERROR,
-
     /* Sent from the `client-out-socket`.
      *
      * Completes the connection.

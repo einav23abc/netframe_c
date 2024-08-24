@@ -5,4 +5,7 @@
 
 #define _CLIENTS_MAX_AMOUNT_ (7)
 #define _PACKET_MAX_LENGTH_ (128)
-#define _INTERNAL_PACKET_MAX_LENGTH_ (16)
+
+#define DEBUG_MODE
+#define DEBUG_SOFT_MODE
+#define NETFRAME_DEBUG
