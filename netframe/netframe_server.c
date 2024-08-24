@@ -85,7 +85,7 @@ uint32_t get_server_ip() {
 }
 
 void close_server() {
-    clean_sockets();
+    if (clean_sockets() == 1) exit_thread(0);
 }
 
 void send_update_packet_as_server(nf_packet_t packet) {

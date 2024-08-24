@@ -247,6 +247,9 @@ static int32_t clean_socket(socket_t* sock) {
     int32_t current_thread = thread_self();
     int8_t skipped_current_thread = 0;
 
+    // shutdown socket ; or wait until it finishes a blocking call and then shutdown
+    while (shutdown(sock->sock, SD_BOTH) == WSAEINPROGRESS);
+
     if (sock->accepting_sockets) {
         if (current_thread == sock->accept_thread.thread_id) {
             skipped_current_thread = 1;
@@ -262,7 +265,8 @@ static int32_t clean_socket(socket_t* sock) {
         }
     }
 
-    closesocket(sock->sock);
+    // close socket ; or wait until it finishes a blocking call and then close
+    while (closesocket(sock->sock) == WSAEINPROGRESS);
     free(sock);
 
     return skipped_current_thread;

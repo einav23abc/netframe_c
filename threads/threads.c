@@ -1,9 +1,6 @@
 #include "threads.h"
 
 
-// #define DEBUG_MODE
-
-
 #ifdef DEBUG_MODE
 #include <stdio.h>
 int32_t threads_active = 0;
@@ -64,15 +61,15 @@ void exit_thread(int32_t exit_code) {
 
 // returns the thread's exit code
 int32_t join_thread(thread_t thread) {
-    #ifdef DEBUG_MODE
-    if (get_thread_exit_code(thread) == STILL_ACTIVE) {threads_active -= 1; printf("threads -= 1 (%d)\t: %d\n", thread.thread_id, threads_active);}
-    #endif
-
     // wait
     WaitForSingleObject(
         thread.thread_handle,
         INFINITE // The time-out interval [...] If dwMilliseconds is INFINITE, the function will return only when the object is signaled.
     );
+    
+    #ifdef DEBUG_MODE
+    if (get_thread_exit_code(thread) == STILL_ACTIVE) {threads_active -= 1; printf("threads -= 1 (%d)\t: %d\n", thread.thread_id, threads_active);}
+    #endif
     
     // get exit code
     int32_t exit_code = get_thread_exit_code(thread);

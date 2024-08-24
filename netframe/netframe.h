@@ -24,7 +24,7 @@
 #endif
 
 #ifndef _CLIENTS_MAX_AMOUNT_
-#define _CLIENTS_MAX_AMOUNT_ (10)
+#define _CLIENTS_MAX_AMOUNT_ (1)
 #endif
 
 
@@ -187,6 +187,9 @@ int32_t open_server_local();
 uint32_t get_server_ip();
 
 /* Closes a server opened by `open_server()` or `open_server_local()`.
+ *
+ * If `close_server` is called from within a user-defined netframe function,
+ * The function will not continue executing after the call beacuse the thread will be terminated.
  *
  * All connected clients will be disconnected.
  */
